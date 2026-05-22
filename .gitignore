@@ -1,0 +1,95 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# ---- Notebooks ----
+.ipynb_checkpoints/
+*-checkpoint.ipynb
+
+# ---- Env / secrets ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+
+# ---- Editors / IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+
+# ---- OS ----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ---- Docker / runtime ----
+*.pid
+*.log
+logs/
+
+# ---- Data / models / artifacts ----
+data/raw/
+data/interim/
+data/processed/
+data/external/
+models/
+checkpoints/
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+*.h5
+
+# Keep directory shells
+!**/.gitkeep
+
+# ---- Eval / experiment outputs ----
+outputs/
+runs/
+wandb/
+mlruns/
+lightning_logs/
+
+# ---- Node (in case of small frontend) ----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ---- Project-specific ----
+docs/
