@@ -51,7 +51,35 @@ Findings (full detail in `spike_log.md`):
 
 ## Data decisions
 
-- Source choices and why: <placeholder>
+### Chunking (Phase 1 of the production pipeline)
+
+- **Two sources, one corpus (1,475 chunks):**
+  - **Excel → 1,420 chunks** — both **4-digit unit groups (414)** and **5-digit occupations
+    (1,006)**. 4-digit rows turned out to carry full definitions *and* a Tasks duty-list (97%
+    populated), so they're substantive, not thin. (An early profiling pass wrongly reported
+    Tasks as empty; caught by dumping a raw row before trusting the summary.)
+  - **Report PDF pages 8–23 → 55 chunks** — pages are clean digital text (no OCR). Chunked
+    **one chunk per numbered paragraph** (1.1, 2.5, …) rather than per page/section, because the
+    user wanted smaller units; each is ~100–225 tokens and carries its section heading.
+- **Excel column selection (user call):** include Definition + Tasks + Groups(child-list) +
+  Examples-under + Examples-elsewhere; **drop Notes** and the 1/2/3-digit summary rows. Kept
+  `Examples Classified Elsewhere` deliberately — it is the load-bearing signal for the
+  false-premise abstention category (flagged this when the user initially wanted to drop it).
+- **Division of labour:** Excel = per-code definitions; report = the conceptual/structural layer
+  (what SSOC is, 2024-vs-2020 comparison, principles) — grounding for the abstention categories.
+- **Report section labels:** derived each paragraph's section from its own number (2.13 → §2) and
+  named sections from the genuine heading nearest before each section's first paragraph; this was
+  needed because the major-groups table rows ("9 Cleaners… 5 12 24 65") otherwise masquerade as
+  headings. Every chunk is dumped to `data/processed/chunks_preview.txt` for inspection before
+  embedding. `tests/test_ingest.py` (15 tests) guards counts, unique ids, ex_else survival,
+  token limits, and idempotency.
+- **Chunk audit (post-build):** reviewing the full dump caught two report-text defects — the
+  running page header/footer ("Singapore Department of Statistics … 2024" + a private-use glyph)
+  leaking into 15/55 chunks, and de-hyphenation that joined real compounds ("five-digit" →
+  "fivedigit"). Fixed: strip the footer signature line + PUA glyphs before splitting, and keep the
+  hyphen when joining wrapped lines (9/11 line-end hyphens are genuine compounds). Excel chunks
+  audited clean. Tables (e.g. §2.12 counts) left as linearised prose — accepted for a basic RAG.
+
 - Any hand-curation or labelling effort: <placeholder>
 
 ## Evaluation decisions
