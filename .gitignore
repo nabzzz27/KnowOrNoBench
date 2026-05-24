@@ -61,7 +61,7 @@ logs/
 # ---- Data / models / artifacts ----
 data/raw/
 data/interim/
-#data/processed/
+data/processed/
 data/external/
 models/
 checkpoints/
@@ -93,6 +93,7 @@ yarn-error.log*
 
 # ---- Project-specific ----
 docs/
+chroma_db/
 
 # ---- Miscellaneous Items ----
 .claude
