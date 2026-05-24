@@ -184,8 +184,8 @@ def parse_report() -> list[dict]:
             "id": f"report-{para}",
             "source": "ssoc_report",
             "code": f"report-{para}",
-            "title": f"SSOC 2024 Report — §{section}",
-            "text": f"SSOC 2024 Report — §{section}\n{body}",
+            "title": f"SSOC 2024 Report — {section}",
+            "text": f"SSOC 2024 Report — {section}\n{body}",
             "meta": {"page": _page_at(start, spans), "para": para, "section": section},
         })
     return chunks
