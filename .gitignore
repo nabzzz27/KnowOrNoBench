@@ -93,3 +93,7 @@ yarn-error.log*
 
 # ---- Project-specific ----
 docs/
+
+# ---- Miscellaneous Items ----
+.claude
+CLAUDE.md
