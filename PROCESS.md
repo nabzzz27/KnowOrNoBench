@@ -38,6 +38,79 @@ Findings (full detail in `spike_log.md`):
   window. Replaced with proactive pacing (<=95 texts/60s) + a 60s wait on 429. This is the
   mitigation the production `embed.py` will inherit.
 
+### Phase 2 — Embed & Index (the real build vs. the spike)
+
+Lifted the spike's pacer + retry into `src/embed.py` (`embed_documents`, `embed_query` — the
+function names enforce the RETRIEVAL_DOCUMENT vs. RETRIEVAL_QUERY asymmetry at the call site).
+Built `src/index.py` around a persistent Chroma collection with `hnsw:space=cosine` set
+explicitly; `build_index` is idempotent + crash-resumable (queries existing ids first, embeds
+only the missing set). That property turned out to be load-bearing — see below.
+
+**Live finding during the real build: the *daily* RPD is the binding constraint, not RPM.** The
+spike measured the per-minute quota (~100 texts/min, text-counted) and our pacer handled it
+perfectly. But on the production build of 1,475 chunks, we ran out at batch 10/15 (~1,000
+chunks indexed) and started hitting persistent 429s the pacer could not resolve — because the
+**free-tier `gemini-embedding-001` daily cap is 1,000 text-requests / day** (also text-counted),
+and RPD only resets at midnight Pacific. The pacer guards against the per-minute window; the
+daily window is a separate, harder ceiling.
+
+This was a real lesson: when validating a paced system, measure both *per-minute throughput*
+and *expected daily volume*. The spike covered the former; the latter only surfaced live.
+
+**Mitigation:** the idempotent resume in `build_index` made recovery a no-op — the 1,000
+already-indexed chunks persisted across sessions; re-running tomorrow would embed only the
+remaining ~475 (well under the next day's cap).
+
+**Decision: enable Google AI Studio billing.** The brief explicitly permits this ("works on
+free tier and would scale cleanly with a budget — that's fine"); the architecture remains
+free-tier-compatible (the system itself doesn't require paid — billing is only for development
+speed and the upcoming eval). Estimated total project cost is well under $1 (embedding ~$0.02
+one-time; full eval ~$0.30–$0.50). The bigger reason: Phase 3's eval would otherwise need
+~13 days at the free-tier Flash RPD of 20/day (85 questions × 3 configs = 255 calls).
+Documented in the README "Cost & free-tier behavior" section (Phase 4) per the brief's "state
+your limitations clearly" requirement. After billing was enabled, the build finished in ~5 min
+via the resumability path, `count == 1475`, sanity queries returned the gold codes at rank 1.
+
+### Phase 2.5 — Retrieval-quality probe (verifying the embeddings before generation)
+
+Before building the answer-generation pipeline, I wanted a defensible answer to a basic
+question: are the embeddings good enough that the right chunk is reachable in the first place?
+Generation-side problems can be debugged by tweaking prompts; retrieval-side problems cannot.
+So I separated the two failure modes with a dedicated diagnostic notebook
+(`notebooks/retrieval_quality.ipynb`).
+
+25 hand-curated queries: 15 answerable (known gold codes), 6 unanswerable (SSIC confusion,
+salary, fabricated code, obsolete version, off-topic), 4 edge (typo, ambiguous, niche, broad
+category). For each: embed once, retrieve top-5 from Chroma, capture rank + distance + full
+chunk text.
+
+**Results.** recall@4 = 15/15 = **100%**; recall@1 = 73% — the 4 misses are all parent ↔ child
+or sibling confusions (e.g. "Member of Parliament" → unit-group `1111` above 5-digit `11110`),
+inherent to chunking both 4- and 5-digit codes. With `TOP_K = 4` the gold is always in the
+context window, so the generator will still see it. MRR = 0.844.
+
+**Distance separation is clean** between answerable and unanswerable medians (0.218 vs 0.356) —
+a usable signal for threshold-based abstention later if needed, though prompt-based abstention
+remains the primary lever. Retrieval is **deterministic** (embedding model has no sampling,
+HNSW is deterministic once built, chunks are static); re-running the notebook yields the same
+results.
+
+**Notable finding.** The obsolete-version query ("SSOC code for IT support in SSOC 2010")
+landed inside the answerable/unanswerable distance overlap zone — the system semantically
+surfaced a current-day IT-support code. This is exactly where prompt-based abstention (using
+the report chunks about SSOC-2024-vs-2020) will need to do work that retrieval alone cannot.
+
+### Robustness pass — considered, deferred
+
+A code audit surfaced 8 defensive-fix candidates (header-rename robustness, hash-based vector
+freshness, NA handling, etc.). Verified that none break the current build; the only actively
+noisy one (`report-6.1` swallowing a Skills-Framework footnote and the page-23 "Part II:"
+divider) is reasonable encyclopedic text attached to the wrong paragraph, not garbage. Skipped
+the pass: this is a prototype where the **eval methodology is the deliverable**, not a
+production RAG. The brief explicitly says the RAG-under-test is meant to be deliberately
+simple. Hardening would be appropriate for a production system; here it would trade
+eval-rigour time for marginal RAG robustness. Recorded as a deliberate trade-off.
+
 ## Tools and models
 
 - Coding agents used and for what: <placeholder>
