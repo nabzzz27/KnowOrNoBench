@@ -111,6 +111,188 @@ production RAG. The brief explicitly says the RAG-under-test is meant to be deli
 simple. Hardening would be appropriate for a production system; here it would trade
 eval-rigour time for marginal RAG robustness. Recorded as a deliberate trade-off.
 
+### Phase 3 — Retrieve & Generate
+
+Built `src/rag/` as a small sub-package the eval contracts against:
+`retrieve.py` (wraps `embed_query` + Chroma), `prompts.py` (frozen templates +
+`format_context`), `generate.py` (Gemini 2.5 Flash at temp 0 with inline retry),
+`answer.py` (orchestrator). Public surface is a single `answer(question, config) → dict`
+returning `{question, config, retrieved_chunks, prompt, response}` — fully JSON-serialisable
+and drops straight into per-question eval records. `scripts/query.py` is a CLI feel-tester,
+not used by the eval.
+
+- **Two configs, not three.** Initially scoped NAIVE / ABSTENTION / ZEROSHOT, then dropped
+  ZEROSHOT after thinking through what the benchmark actually measures. KnowOrNoBench
+  measures the *RAG's* hallucination behaviour, so the relevant counterfactual is
+  "same retrieval, no abstention rule" (NAIVE), not "no retrieval at all" (ZEROSHOT).
+  ZEROSHOT answers a different research question ("does retrieval help?") that is downstream
+  of the headline result. Cutting it tightened scope by one prompt to freeze, one branch in
+  the orchestrator, and 3 tests. The PRD's contrast surface is now NAIVE vs ABSTENTION,
+  isolating exactly the abstention rule's contribution.
+
+- **Prompts frozen.** NAIVE = "use this context, answer the question" with no abstention
+  rule. ABSTENTION = same context block plus four explicit rules: (1) only use the context,
+  (2) reply "I don't know" + state what is missing when context is insufficient, (3) refuse
+  false-premise questions and explain why the SSOC 2024 source does not support the premise,
+  (4) cite the SSOC code(s) when answering. Frozen because any wording change invalidates
+  any κ already measured against the previous wording — iteration belongs on a dev split.
+
+- **Test seams.** Both `retrieve()` and `generate()` accept optional injected functions
+  (`embed_fn`/`col` and `gen_fn`), matching the existing pattern in `src/index.py`. Tests
+  pass deterministic stubs; production uses defaults. 21 new tests, zero API spend.
+
+- **`__init__.py` naming gotcha.** Re-exporting the function `answer` from `__init__.py`
+  shadows the `src.rag.answer` submodule, so `from src.rag import answer as answer_mod`
+  binds the function, not the module. Fixed by switching tests to
+  `from src.rag.answer import answer` (which sidesteps the shadow). The eval can still
+  import the public surface as planned: `from src.rag import answer`.
+
+- **Inline retry, no shared helper.** Generate has its own 3-line rate-limit detector
+  duplicated from `src/embed.py` rather than a shared `_retry.py`. Trivial duplication
+  beats a premature abstraction — the two modules' retry policies will likely diverge
+  (per-text minute window for embeddings vs. per-request quota for generation), and the
+  abstraction would have to be re-thought when that happens.
+
+- **Verification checkpoint.** Full pytest green (48 total, 21 new, 0 API calls).
+  Two real queries against the live Chroma + Gemini Flash:
+  - Answerable: `"What is SSOC 25121?"` → top-1 = 25121 (Software developer, distance 0.27),
+    response cleanly quotes the definition from the chunk.
+  - Unanswerable (false premise): `"What is the SSOC code for a unicorn trainer?"` and
+    `"What was SSOC code 25121 in the 2010 version?"` across both configs.
+
+- **Unexpected finding at the checkpoint.** Both NAIVE and ABSTENTION refused both
+  unanswerable questions — NAIVE without being told the rule. ABSTENTION used the verbatim
+  "I don't know" phrase as instructed; NAIVE produced longer-form refusals explaining what
+  was missing. Read: Gemini 2.5 Flash is honest-by-default when context plainly does not
+  contain the answer. The benchmark's job is therefore *not* "does the abstention rule
+  catch trivial misses" — it is to find the borderline cases where retrieval surfaces
+  plausible-but-wrong chunks (parent ↔ child code confusion, sibling occupations,
+  obsolete-version queries that semantically match a current code) and NAIVE confabulates a
+  citation while ABSTENTION holds the line. The spike already flagged the obsolete-version
+  case as the highest-risk overlap zone (top-1 distance 0.27, identical to the answerable
+  median); benchmark curation should oversample these borderline categories rather than
+  obvious false premises.
+
+- **Cost.** ~3 API calls at the checkpoint, < $0.001.
+
+### Phase 3.5 — Prompt-config refactor (NAIVE/ABSTENTION → NEUTRAL/FORCED/STRICT)
+
+The Phase 3 checkpoint exposed a methodology gap: the NAIVE-vs-ABSTENTION contrast
+collapsed because Flash 2.5 is honest-by-default at temp 0. Without an *explicit*
+counterfactual that removes the model's natural caution, the benchmark could only measure
+"does the abstention rule polish behaviour the model already has?" rather than "does the
+rule prevent hallucination the model would otherwise produce?". A weaker question.
+
+The fix was a 3-config contrast surface:
+- **`neutral`** — natural baseline (no rule). Same wording as the retired NAIVE_PROMPT.
+- **`forced`** — explicitly forbids refusal. Generates known-positive hallucinations the
+  judge must catch; together with the known-negative `strict/answerable` cells, this gives
+  the eval ground-truth labels without manual annotation on those rows. NEW.
+- **`strict`** — must use context, must refuse if unsupported. Same wording as the retired
+  ABSTENTION_PROMPT, just renamed. The production-intended behaviour and the default for
+  `answer(question)` calls with no config argument.
+
+Temperature stayed at 0.0 (CLAUDE.md constraint, reproducible eval). The new `forced`
+prompt does the work that raising temperature would have done — it breaks Flash 2.5 out
+of safe-mode by explicitly forbidding refusal language ("I don't know", "I cannot answer",
+"the context does not contain that information").
+
+- **Re-freeze decision.** The prior prompts were committed as frozen but no judge κ had
+  been measured against them, so re-freezing is cheap right now. After Phase 4 (judge
+  validation), prompt edits will be expensive — κ would need to be re-measured.
+
+- **Re-verification on the SAME unanswerable questions that previously collapsed:**
+
+  Question: *"What is the SSOC code for a unicorn trainer?"*
+  - `strict`: "I don't know. The occupation 'unicorn trainer' is not supported by the SSOC 2024 source provided." ✓
+  - `forced`: **"The SSOC code for a unicorn trainer is 51943."** ← confabulated; grabbed
+    the top-retrieved unrelated code and committed
+  - `neutral`: explanatory refusal — "Unicorns are mythical creatures..." (natural behaviour)
+
+  Question: *"What was SSOC code 25121 in the 2010 version?"*
+  - `strict`: "I don't know - The context does not contain information about SSOC codes from the 2010 version." ✓
+  - `forced`: **"The SSOC 2010 code for what is now SSOC 25121 (Software developer) was 2512."** ← *confidently invented an SSOC 2010 mapping*. Exactly the failure mode the benchmark needs to detect.
+  - `neutral`: refusal with explanation that the context only covers 2024.
+
+  Both questions now produce a sharp three-way contrast where the previous two-config
+  design produced two near-identical refusals.
+
+- **What `forced` is for (corrected framing).** It is NOT a hallucination ceiling that the
+  RAG dials down from — nobody would ship the `forced` prompt in production, so "ceiling
+  of a continuous knob" is a contrived story. The sharper framing: `forced` is a
+  *positive control for the judge*. On an unanswerable question we know by construction
+  that `forced` MUST confabulate, so if the judge labels a `forced/unanswerable` response
+  as "correct refusal", the judge is broken. Likewise `strict/answerable` is a negative
+  control. These two cell-types give the eval ground truth without manual labelling; the
+  remaining hand labels go on `strict/unanswerable`, which is where the headline κ is
+  measured. `neutral` is no longer "the contrast condition" — it is a covariate for
+  whether the model already abstains without the rule.
+
+- **Methodology gaps still present (flagged for the README, not closed by this refactor):**
+  1. `neutral` is "our baseline wording", not "the typical RAG baseline" — every team's
+     default prompt is different. Frame as such in the writeup.
+  2. `forced`-induced hallucinations may not be representative of real-world ones. A
+     judge that aces the `forced/unanswerable` rows can still miss subtler hallucinations
+     the model would produce naturally. Mitigation: the κ-validation set must include
+     hand-labelled real hallucination examples, not rely on `forced` rows alone.
+  3. The judge labels each (question, config, response) row uniformly as
+     abstained / hallucinated / correct_answer. The rubric stays the same; what differs is
+     the *expected* label per cell-type: `forced/unanswerable` → hallucinated,
+     `strict/answerable` → correct_answer, `strict/unanswerable` → abstained.
+     Construction-level ground truth on the first two; hand labels on the third.
+  4. Single-shot at temp 0 → no variance bars on the metric. Acceptable for v1 (the
+     contrast is the headline, not the distribution); future work could re-eval at temp
+     0.7 with N samples.
+  5. Three configs cannot save a weak question set — discrimination only emerges if
+     benchmark questions span false-premise, missing-data, paraphrase, parent/child
+     confusion, etc. That work happens in benchmark curation (CATEGORY_RULES.md).
+
+- **Test count:** 48 → 50 (added third-config tests in test_rag_prompts.py and
+  test_rag_answer.py). All green, no API spent.
+
+- **Cost of the refactor:** ~7 API calls across the two-question 3-way contrast,
+  < $0.002.
+
+### Phase 3.7 — forced/answerable verification
+
+The Phase 3.6 framing implicitly assumed `forced/answerable` is a clean known-negative
+ground-truth row (the model should answer correctly because both the context AND the
+forced rule push that way). All previous checkpoints only ran `forced` against
+*unanswerable* questions, so this assumption was untested. Ran an N=1 empirical check
+to either back it or flag it.
+
+Question: *"What is SSOC 25121?"* (answerable; top-1 = 25121, distance 0.27)
+
+- `strict` response: full verbatim definition pulled from the chunk —
+  *"SSOC 25121 is 'Software developer'. Definition: Software developer researches,
+  designs and develops computer and network software... [continues, verbatim]."*
+- `forced` response: paraphrased but semantically faithful —
+  *"SSOC 25121 is for a Software developer. A Software developer researches, designs,
+  and develops computer and network software or specialised utility programmes. They
+  analyse user needs, develop intuitive and responsive software solutions, update
+  software, enhance existing capabilities, and direct software testing and validation
+  procedures..."*
+
+Compared on three axes:
+- **Code accuracy:** both cite 25121 ✓
+- **Definition fidelity:** strict = verbatim; forced = paraphrased, no facts added or
+  removed
+- **Outside-knowledge contamination:** none visible in either — no invented salary
+  ranges, alternate codes, year-of-creation, or career path additions
+
+**Verdict (N=1):** `forced/answerable` is clean in this sample. Rule 3's "use outside
+knowledge" clause did NOT fire because the context was complete. The Phase 3.6 framing
+stands: this cell is a known-negative.
+
+**Caveats worth flagging for the eval:**
+1. N=1. Topics where retrieved context is thinner (e.g. report chunks) could behave
+   differently — rule 3 is more likely to fire there. The full eval will surface this
+   if it happens; do not over-claim cleanliness from one sample.
+2. Forced paraphrases rather than quoting verbatim. The judge prompt MUST recognise
+   "same facts, different wording" as a correct answer — penalising paraphrase would
+   systematically downscore `forced/answerable` and corrupt the negative-control
+   labels.
+
 ## Tools and models
 
 - Coding agents used and for what: <placeholder>
