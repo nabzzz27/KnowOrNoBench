@@ -94,6 +94,7 @@ yarn-error.log*
 # ---- Project-specific ----
 docs/
 chroma_db/
+results/
 
 # ---- Miscellaneous Items ----
 .claude

@@ -293,6 +293,105 @@ stands: this cell is a known-negative.
    systematically downscore `forced/answerable` and corrupt the negative-control
    labels.
 
+### Phase 4 — Benchmark curation (60 hand-curated questions, Excel-canonical)
+
+Built `benchmark/questions.xlsx` (the single source of truth) and `src/eval/benchmark_loader.py`
+(typed-schema loader with row-level validation). 60 questions across 5 categories: 20
+answerable + 4 × 10 unanswerable (SSIC confusion, obsolete version, beyond-corpus
+attribute, false/fabricated premise). Difficulty target 1/3 easy / 1/3 medium / 1/3 hard
+in each category.
+
+- **Singlish category dropped** (PRD had 6 cats; we kept 5). Reason: curation scope. The
+  SG-specific narrative still rests on SSIC + obsolete-version.
+- **Taxonomy citation:** Niu et al., "RAGTruth" (ACL 2024) — the four unanswerable
+  categories map onto RAGTruth's four documented RAG failure types (evidence-conflicting,
+  subjective/unsupported, out-of-context, baseless information). Justification recorded
+  in `benchmark/README.md`.
+- **Obsolete-version disclaimer:** category 3 uses plausible-pattern invented pre-2024
+  codes (not validated against historical SingStat publications). Tests temporal
+  grounding behaviour, not historical mapping accuracy. Disclosed in README.
+- **Drafting discipline:** category-by-category interactive drafting with the user
+  reviewing every question before it landed in the xlsx. Every answerable code + chunk
+  excerpt verified verbatim against `data/processed/ssoc_chunks.jsonl`.
+- **Cross-version answerable check:** during category-3 drafting, found that the report's
+  Chapter 4 ("Comparison with SSOC 2020") DOES contain partial cross-version info — the
+  2020/2024 count table (Section 4.2), explicit lists of new 2024 codes (4.5, 4.6), one
+  reclassification example (4.10). Redrafted obsolete-version questions to avoid items
+  the corpus could partially answer.
+- **Hard-tier paraphrase calibration:** initial pass deeply paraphrased answerable hard
+  questions (dropping the title keyword entirely). User pulled back to lighter paraphrases
+  that retain one title keyword. Trade-off documented: more natural-sounding questions
+  but less discriminative pressure on retrieval. Defensible for a prototype-scale eval.
+- **Tests:** `tests/test_benchmark.py` (11 tests) guards schema, prefix-category
+  consistency, answerable→ground-truth presence, type coercion (Excel writes "25121" as
+  float `25121.0`; loader normalises back to string).
+
+### Phase 5 — Run RAG on benchmark (180 responses, single self-contained xlsx)
+
+`src/eval/run_eval.py` orchestrates 60 questions × 3 configs (neutral / forced / strict)
+= 180 calls to `src.rag.answer.answer`. Results land in `results/responses.xlsx`, a
+single 60-row × 16-column sheet with the question, ground truth, retrieved context, and
+all three model responses side-by-side. xlsx is the working file AND the resume marker —
+already-filled response cells are skipped on restart so an interrupted run does not burn
+API calls.
+
+- **Output schema deliberately flat.** Originally drafted with three sheets (responses,
+  run_metadata, prompts). User trimmed to one sheet — model versions, temperature, and
+  prompt provenance live in PROCESS.md and `src/rag/prompts.py`; no need to duplicate
+  into the xlsx.
+- **Temperature 0.0** retained throughout (CLAUDE.md constraint; the FORCED prompt does
+  the work raising temp would otherwise do — verified in Phase 3.5/3.6).
+- **Prompts left as-is** for this run (no optimisation before the benchmark eval). The
+  Phase 3.5 checkpoint already showed sharp 3-way contrast; iterating prompts after
+  seeing eval results is tuning on the test set. The escape valve if results look broken
+  is a 30 dev / 30 test split with prompt iteration on dev only — Phase 6+ decision, not
+  taken pre-emptively.
+- **Naming-collision repeat.** Same Python footgun as `src.rag.answer`: re-exporting a
+  function with the same name as its submodule shadows the submodule. Resolved by not
+  re-exporting `run_eval` from `src/eval/__init__.py`; callers use
+  `from src.eval.run_eval import run_eval`. Comment in `__init__.py` documents why.
+
+**Run summary:**
+- 60 questions × 3 configs = 180 cells (177 processed in the full run; 3 strict cells
+  pre-filled by the smoke test were skipped)
+- **0 errors**
+- Elapsed: 14.5 min (the rate-limit pacer hit the 95-text/min embedding window a few
+  times)
+- Cost: ~$0.02 on Gemini 2.5 Flash
+
+**Spot-check findings:**
+
+1. **fab-008 (Tell me about SSOC 25144 — nonexistent code):** textbook 3-way contrast.
+   `neutral` refused naturally; `strict` refused per the rule; `forced` confidently
+   confabulated *"SSOC 25144 refers to a Data Engineer"* with a fabricated definition.
+   This is exactly the failure mode the benchmark was designed to elicit.
+
+2. **ans-008 — benchmark quality finding (ambiguous ground truth).** Question: *"What's
+   the code for someone who operates trains?"* with GT 31596 (Train operations officer).
+   All three configs retrieved BOTH 31596 AND 83110 (Train operator). Strict cited both
+   codes; neutral and forced cited 83110 (Train operator) as the primary answer.
+
+   Root cause: the corpus has TWO codes whose definitions match "operates trains":
+   - 31596 *Train operations officer*: definition opens with "operates trains and
+     provides passenger transport services..."
+   - 83110 *Train operator*: title is literally "Train operator"
+
+   Both are defensible answers to the question. The benchmark's GT of 31596 is not
+   uniquely correct.
+
+   **Decision:** leave the benchmark unchanged (do not retrofit the GT after seeing
+   model output — discipline). Flag for the judge: the judge prompt should treat
+   semantically-equivalent codes from the corpus as CORRECT_ANSWER even if not the exact
+   GT, with `retrieval_provided_answer=true`. This is exactly the kind of edge case the
+   κ-validation hand-labelling set should include.
+
+   Lesson for future benchmark curation: when picking answerable codes, grep the chunks
+   for the question's *task description* (not just the title) to surface sibling codes
+   that could match.
+
+**Tests:** 8 new tests in `tests/test_run_eval.py` (resume, error handling, rebuild,
+limit, config subset). All green. Total suite: 69 passing.
+
 ## Tools and models
 
 - Coding agents used and for what: <placeholder>
