@@ -18,10 +18,16 @@ COPY tests/ ./tests/
 COPY benchmark/ ./benchmark/
 COPY notebooks/ ./notebooks/
 
-# Pre-built artifacts so the reviewer does not need an API key for the demo path
+# Pre-computed artifacts that are portable across machines (the notebook reads
+# from results/; build_index reads the chunks JSONL from data/processed/)
 COPY data/ ./data/
-COPY chroma_db/ ./chroma_db/
 COPY results/ ./results/
+
+# chroma_db is NOT copied here. The HNSW segment format is not portable across
+# machines, so the index is built locally on first run via:
+#     docker compose run --rm rag python -m scripts.build_index
+# The rebuilt index lands in /app/chroma_db, which is volume-mounted to
+# ./chroma_db on the host (see docker-compose.yml) so it persists.
 
 # Bring .env.example along so the reviewer can see the expected shape
 COPY .env.example ./

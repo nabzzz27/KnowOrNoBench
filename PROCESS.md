@@ -22,6 +22,8 @@ The first surprise was that the binding constraint on the free tier was not the 
 
 The second quota wall came on the generation side. The free tier for the generator had a small daily request cap, and running the full eval across multiple prompts would have taken many days at that rate. I made the deliberate decision to enable billing for both embedding and generation. The brief explicitly permits this, the total project cost was forecast to be well under one dollar, and the alternative was a multi-day calendar slip on the eval. Documenting the decision as a deliberate trade-off rather than hiding it was important.
 
+A third surprise came much later, during the dockerization step. The Chroma vector index built on my host could not be loaded inside the Docker container; the HNSW segment file is a platform-dependent binary blob and does not survive a move between Python builds. The fix was to stop shipping the index in the repo and document a one-time `python -m scripts.build_index` step that a reviewer runs inside the container after the image is built. The chunks JSONL is portable and is shipped, so the rebuild only needs the embedding step and finishes in a few minutes.
+
 ## Verifying retrieval quality before building generation
 
 Before writing any answer-generation code, I wanted a defensible answer to one question: are the embeddings good enough that the right chunk is reachable in the first place? Generation-side problems can be debugged later by tweaking prompts. Retrieval-side problems cannot, because if the right chunk never makes it into the context, no amount of prompt work can save the response.

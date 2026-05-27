@@ -192,31 +192,40 @@ The full charts (bar plots, per-category heatmaps, failure-mode examples) live i
 
 ## How to Run
 
-**Prerequisites.** Docker and Docker Compose. (A Google AI Studio API key with Gemini access is needed only for live queries or to reproduce the eval. Browsing the pre-computed results does not require one.)
+**Prerequisites.** Docker and Docker Compose. A Google AI Studio API key with Gemini access is required for the first-time vector-index build, and for live queries or eval reproduction. Browsing the pre-computed eval results in the notebook does not require an API key.
 
-The supported path is Docker. The image bundles the source code, the SSOC 2024 source files, the pre-built Chroma index, and the pre-computed eval outputs, so a reviewer can see the results immediately without rebuilding anything.
+The supported path is Docker. The image bundles the source code, the SSOC 2024 source files, the JSONL chunks, and the pre-computed eval outputs. The Chroma vector index is built locally on first run, because its binary format is not portable across machines.
 
 ```bash
 # 1. Clone
 git clone <repo-url>
 cd KnowOrNoBench
 
-# 2. (Optional) Configure the API key for live queries and eval reproduction
+# 2. Configure the API key
 cp .env.example .env
-# Open .env and paste your GEMINI_API_KEY. Skip this step if you only want
-# to view the pre-computed results.
+# Open .env and paste your GEMINI_API_KEY. This is needed for the first-time
+# index build below, and for any live queries. If you only want to browse the
+# pre-computed results in the notebook, you can skip this step and the
+# build-index step, but the live query commands will not work.
 
 # 3. Build the image (about 5 minutes the first time)
 docker compose build
 
-# 4. Launch the environment
+# 4. (First time only) Build the Chroma vector index inside the container.
+#    About 5 minutes, ~$0.02 in embedding spend. The index is written to
+#    ./chroma_db on your host via a volume mount, so this step is one-time only.
+docker compose run --rm rag python -m scripts.build_index
+
+# 5. Launch the environment
 docker compose up
 
-# 5. Open http://localhost:8888 in your browser.
+# 6. Open http://localhost:8888 in your browser.
 #    Open notebooks/results_analysis.ipynb to see the headline 3-way comparison,
 #    per-category breakdowns, retrieval-cascade table, and failure-mode examples.
 #    No API key needed for this path.
 ```
+
+**Why step 4 is needed.** Chroma stores its vector index as a binary HNSW segment whose layout is not portable across different Python builds, even on the same architecture. Shipping a pre-built `chroma_db` from one machine and trying to load it inside the Docker container on another machine reliably fails with `Error loading hnsw index`. Building the index inside the container, once, sidesteps this entirely.
 
 To run a live query against the RAG (requires `GEMINI_API_KEY` in `.env`):
 

@@ -8,6 +8,9 @@ services:
       - path: .env
         required: false
     volumes:
+      # Persist the chroma_db built by `python -m scripts.build_index` so it
+      # survives `docker compose down` and subsequent `up` cycles
+      - ./chroma_db:/app/chroma_db
       # Persist notebook edits and any new result files the reviewer creates
       - ./results:/app/results
       - ./notebooks:/app/notebooks

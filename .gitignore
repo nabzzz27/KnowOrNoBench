@@ -59,9 +59,12 @@ Thumbs.db
 logs/
 
 # ---- Data / models / artifacts ----
-# Note: data/raw, data/processed, chroma_db, and results are intentionally
-# committed so the Docker image can be built from a fresh clone without an
-# API key. See README "How to run" and PROCESS "Dockerizing the project."
+# Note: data/raw, data/processed, and results are intentionally committed so
+# the Docker image can be built and the notebook can render without an API key.
+# chroma_db is NOT committed because the HNSW segment format is not portable
+# across machines; reviewers rebuild it once on first setup. See README
+# "How to run" and PROCESS for the rationale.
+chroma_db/
 data/interim/
 data/external/
 models/
