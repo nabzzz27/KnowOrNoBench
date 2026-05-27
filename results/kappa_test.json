@@ -1,0 +1,43 @@
+{
+  "kappa": 1.0,
+  "ci_low": 1.0,
+  "ci_high": 1.0,
+  "n": 30,
+  "confusion_matrix": {
+    "CORRECT_ANSWER": {
+      "CORRECT_ANSWER": 10,
+      "WRONG_ANSWER": 0,
+      "OVER_REFUSAL": 0,
+      "CORRECT_ABSTAIN": 0,
+      "HALLUCINATION": 0
+    },
+    "WRONG_ANSWER": {
+      "CORRECT_ANSWER": 0,
+      "WRONG_ANSWER": 0,
+      "OVER_REFUSAL": 0,
+      "CORRECT_ABSTAIN": 0,
+      "HALLUCINATION": 0
+    },
+    "OVER_REFUSAL": {
+      "CORRECT_ANSWER": 0,
+      "WRONG_ANSWER": 0,
+      "OVER_REFUSAL": 0,
+      "CORRECT_ABSTAIN": 0,
+      "HALLUCINATION": 0
+    },
+    "CORRECT_ABSTAIN": {
+      "CORRECT_ANSWER": 0,
+      "WRONG_ANSWER": 0,
+      "OVER_REFUSAL": 0,
+      "CORRECT_ABSTAIN": 11,
+      "HALLUCINATION": 0
+    },
+    "HALLUCINATION": {
+      "CORRECT_ANSWER": 0,
+      "WRONG_ANSWER": 0,
+      "OVER_REFUSAL": 0,
+      "CORRECT_ABSTAIN": 0,
+      "HALLUCINATION": 9
+    }
+  }
+}

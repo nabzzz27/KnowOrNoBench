@@ -23,6 +23,14 @@ CHROMA_PATH = REPO_ROOT / "chroma_db"                    # persistent vector sto
 # --- Models -----------------------------------------------------------------
 EMBED_MODEL = "gemini-embedding-001"
 GEN_MODEL = "gemini-2.5-flash"
+# Judge model — gemini-2.5-pro on Google AI Studio.
+# Original PRD called for a non-Gemini-family judge (llama-3.3-70b-versatile via Groq)
+# to avoid self-preference bias. Groq's free-tier daily 100k-token quota was exhausted
+# mid-run, so we pivoted to gemini-2.5-pro on the project's existing Gemini credit.
+# Methodological consequence: same family as the generator (gemini-2.5-flash). Bias is
+# mitigated by judge=Pro (more capable) vs generator=Flash, and disclosed explicitly
+# in PROCESS.md (Phase 7) and README/Limitations.
+JUDGE_MODEL = "gemini-2.5-pro"
 
 # --- Retrieval / generation constants --------------------------------------
 EMBED_DIM = 768                  # Matryoshka-truncated from 3072; validated in spike
