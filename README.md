@@ -244,7 +244,20 @@ docker exec -it knowornobench python -m scripts.run_judge     --rebuild
 
 ```
 
-**After re-running the evaluation:** the notebook reads the Excel result files into memory at cell-run time, so it keeps showing the old numbers until you re-execute the cells. After `run_full_eval --rebuild` and `run_judge --rebuild` finish, refresh the notebook in your browser and choose `Kernel → Restart and Run All` to render the fresh tables and charts.
+**If a run stops halfway or errors out on some cells.** Both `run_full_eval` and `run_judge` persist their output to disk after every cell, so a Ctrl-C, a network blip, or a rate-limit error never loses more than one in-flight call. Both scripts also resume by default: if you re-run them WITHOUT `--rebuild`, every cell that already has a valid response or label is skipped, and only the missing or errored cells are retried. Cells that errored mid-run leave the response column blank and the error message in a separate `*_error` column, which is exactly the condition the resume logic looks for. So to recover, just drop the `--rebuild` flag and run the same command again:
+
+```bash
+# Resume after a stop or error (no --rebuild flag, so already-done cells are skipped)
+docker exec -it knowornobench python -m scripts.run_full_eval
+docker exec -it knowornobench python -m scripts.run_judge
+
+# Once everything is done, re-running again prints "skipped: 180, processed: 0" and exits.
+# That is how you confirm there is nothing left to do.
+```
+
+If you want to inspect what actually failed before retrying, open `results/responses.xlsx` (for RAG errors) or `results/judged_{config}.xlsx` (for judge errors) and look at the `*_error` columns. They contain the raw exception text, which is usually enough to tell whether the issue was a quota limit (wait and retry), a network blip (just retry), or a real bug (open an issue).
+
+**After re-running the evaluation:** the notebook reads the Excel result files into memory at cell-run time, so it keeps showing the old numbers until you re-execute the cells. After `run_full_eval` and `run_judge` finish, refresh the notebook in your browser and choose `Kernel → Restart and Run All` to render the fresh tables and charts.
 
 ### Stopping the environment
 
