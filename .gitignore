@@ -59,9 +59,10 @@ Thumbs.db
 logs/
 
 # ---- Data / models / artifacts ----
-data/raw/
+# Note: data/raw, data/processed, chroma_db, and results are intentionally
+# committed so the Docker image can be built from a fresh clone without an
+# API key. See README "How to run" and PROCESS "Dockerizing the project."
 data/interim/
-data/processed/
 data/external/
 models/
 checkpoints/

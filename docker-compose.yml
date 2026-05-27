@@ -1,0 +1,13 @@
+services:
+  rag:
+    build: .
+    container_name: knowornobench
+    ports:
+      - "8888:8888"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # Persist notebook edits and any new result files the reviewer creates
+      - ./results:/app/results
+      - ./notebooks:/app/notebooks
