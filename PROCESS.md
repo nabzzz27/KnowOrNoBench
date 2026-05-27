@@ -2,25 +2,21 @@
 
 A narrative of how this project was built. What was tried, what was dropped, which tools made which decisions, and where I exercised judgment.
 
-## Picking the problem
-
-The brief listed roughly fifteen example problem sketches. The one that fit best was "out-of-knowledge-base robustness" for a RAG. The brief weights "Evaluation and effectiveness" at 30%, which is the largest single dimension, so investing in a rigorous evaluation methodology rather than an impressive RAG was the right way to spend the time.
+## Picking the Dataset
 
 The dataset I chose is the Singapore Standard Occupational Classification 2024 (SSOC 2024), published by SingStat. The public-sector framing fits the brief, the corpus is small and narrow (which is the right shape for "knows when it does not know" experiments), and the data has clean provenance. I did consider other Singapore-based sources, but several were either hard to scrape reliably or had terms of use that did not permit redistribution.
 
 ## A short de-risking spike before any production code
 
-Before writing the real pipeline, I wrote one throwaway script that ran six small probes. Each probe was designed to retire one risky assumption: does the stack install on my Python version, does the source data parse without cleanup, does cosine retrieval actually surface the right chunks, does the embedding API behave the way the documentation claims. The script also had a dry-run mode that printed exactly what would be sent to the embedder, with zero API calls, so the data going in was inspectable before any money was spent.
+Before writing the real pipeline, I wrote one throwaway script that ran tested a 'mini pipeline' and a proof of concept before starting the real build. This is to ensure that I will not run into issues downstream that may affect the feasibility of this project. Some of those concerns included: does the stack install on my Python version, does the source data parse without cleanup, does cosine retrieval actually surface the right chunks, does the embedding API behave the way the documentation claims.
 
 The spike paid for itself in two ways. It confirmed the architecture choices in advance (structure-aware chunking, asymmetric embeddings, Chroma with cosine similarity, a Flash generator) so I could build the real pipeline with confidence. It also surfaced a rate-limit characteristic I had not expected: the embedding API counts quota per text and per minute, not per request, which meant my first naive retry approach was useless. I replaced it with a proactive pacer that throttles requests up front, and that became the production behaviour.
 
-## Building the index, and hitting quota walls on both sides
+## Main Challenged Encountered
 
-The real pipeline lifted the spike's pacer and retry logic into proper modules. Embedding lives in `src/embed.py` with two exported functions, `embed_documents` and `embed_query`, named to enforce the asymmetric task-type pattern at the call site. The vector store wraps Chroma with cosine similarity set explicitly, so the metric travels with the index.
+The first main challenge encountered was that the binding constraint on the free tier was not the per-minute rate the spike had measured. It was a separate daily cap that the spike never exposed, because the spike only embedded a small sample. The full corpus build hit the daily cap partway through and could not recover until the next day. The thing that saved the run was that I had built the index step to be idempotent and crash-resumable from the start. It queries existing chunk IDs first and only embeds the missing ones, so already-indexed chunks survived across sessions.
 
-The first surprise was that the binding constraint on the free tier was not the per-minute rate the spike had measured. It was a separate daily cap that the spike never exposed, because the spike only embedded a small sample. The full corpus build hit the daily cap partway through and could not recover until the next day. The thing that saved the run was that I had built the index step to be idempotent and crash-resumable from the start. It queries existing chunk IDs first and only embeds the missing ones, so already-indexed chunks survived across sessions.
-
-The second quota wall came on the generation side. The free tier for the generator had a small daily request cap, and running the full eval across multiple prompts would have taken many days at that rate. I made the deliberate decision to enable billing for both embedding and generation. The brief explicitly permits this, the total project cost was forecast to be well under one dollar, and the alternative was a multi-day calendar slip on the eval. Documenting the decision as a deliberate trade-off rather than hiding it was important.
+The second quota wall came on the generation side. The free tier for the generator had a small daily request cap, and running the full eval across multiple prompts would have taken many days at that rate. I made the deliberate decision to enable billing for both embedding and generation, which based on the brief, is permissible.
 
 A third surprise came much later, during the dockerization step. The Chroma vector index built on my host could not be loaded inside the Docker container; the HNSW segment file is a platform-dependent binary blob and does not survive a move between Python builds. The fix was to stop shipping the index in the repo and document a one-time `python -m scripts.build_index` step that a reviewer runs inside the container after the image is built. The chunks JSONL is portable and is shipped, so the rebuild only needs the embedding step and finishes in a few minutes.
 
@@ -54,10 +50,6 @@ The judge classifies each response into one of five labels. On answerable questi
 
 The judge also returns a `retrieval_provided_answer` boolean. This separates two failure modes that look identical on the label alone: cases where the right chunk was never retrieved, and cases where the right chunk was in the context but the model fabricated anyway. The attribution matters because the two failure modes have different fixes. Retrieval-side failures are addressed by a better embedder or retriever. Generation-side failures are addressed at the prompt or the model. Without this split, the eval would tell the team that something is wrong, but not which lever to pull.
 
-## What surprised me
-
-The generator's honest-by-default behaviour collapsed the original two-prompt design on the first smoke test, which forced the redesign into three prompts. The daily quota cap on the embedding API was the binding constraint, not the per-minute window the spike had measured. Retrieval recall at the top four chunks held up across the whole project, so the retrieval-improvement work I had budgeted for was not needed and the action all sat on the generation side.
-
 ## What I would do differently
 
-Build the evaluation methodology before the RAG, not after. If I had drafted the eval first, the two-prompt methodology gap would have been caught at design time rather than at the first smoke test. Budget for paid judge cost upfront, rather than discovering it mid-run when a free tier exhausts. Lock the reproducibility contract earlier in the project by drafting the Dockerfile during the first week rather than at the end; the version that ships now bundles the source files, the pre-built index, and the eval outputs so a reviewer can see the harness running from a clean clone, but having that contract from day one would have made every intermediate decision (where artifacts live, what gets gitignored, how secrets are passed) easier.
+Build the evaluation methodology before the RAG, not after. If I had drafted the eval first, the two-prompt methodology gap would have been caught at design time rather than at the first smoke test. Budget for paid judge cost upfront, rather than discovering it mid-run when a free tier exhausts. Other things I would have done differently includes things such as using a judge model from a different family than the generation model and leveraging and inter labeller to ensure that my judgement and labelling is coherrent.

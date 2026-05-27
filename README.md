@@ -26,7 +26,7 @@ ingest  →  embed  →  index  →  retrieve  →  generate
 
 - **Ingest** (`src/ingest.py`). Reads the SSOC 2024 Excel file and the SSOC 2024 Report PDF. Produces 1,475 small text "chunks" (1,006 detailed occupations, 414 unit groups, 55 report paragraphs). One chunk per code from Excel, one chunk per numbered paragraph from the report.
 - **Embed** (`src/embed.py`). Converts each chunk into a 768-dimension vector using Google's `gemini-embedding-001`. Document chunks and query strings use different "task types" (DOCUMENT vs QUERY), which is how Google recommends asymmetric retrieval.
-- **Index** (`src/index.py`). Stores the chunks and their vectors in Chroma, a local vector database. The similarity metric is set explicitly to cosine (a standard choice for embeddings) so the metric travels with the index.
+- **Index** (`src/index.py`). Stores the chunks and their vectors in Chroma, a local vector database. The similarity metric is set explicitly to cosine (a standard choice for embeddings).
 - **Retrieve** (`src/rag/retrieve.py`). Given a question, embed it and fetch the top 4 closest chunks.
 - **Generate** (`src/rag/generate.py`). Send the question plus the retrieved chunks to `gemini-2.5-flash` at temperature 0.0. Temperature 0 makes the output more deterministic, which is required for a reliable and consistent evaluation for this project.
 
@@ -47,8 +47,8 @@ benchmark  →  run_eval  →  judge  →  kappa  →  metrics  →  notebook
 
 ### Why these model choices
 
-- **`gemini-2.5-flash` for the generator.** Fast, free tier available, accurate enough for SSOC lookup.
-- **`gemini-2.5-pro` for the judge.** A more capable model than the generator. Originally, I planned to use `llama-3.3-70b-versatile` via Groq for the judge so the judge was from a different model family (to avoid bias). Mid-project, Groq's free tier ran out and had to switch. The judge-stronger-than-student gap mitigates the same-family risk, but this is disclosed in the Limitations section.
+- **`gemini-2.5-flash` for the generator.** Fast and accurate enough for SSOC lookup.
+- **`gemini-2.5-pro` for the judge.** A more capable model than the generator. Originally, I planned to use `llama-3.3-70b-versatile` or `DeepSeek V4 Flash` via Groq and OpenRouter for the judge so the judge was from a different model family (to avoid bias). However, mid-project, their free tier ran out and had to switch. The judge-stronger-than-student gap mitigates the same-family risk, but this is disclosed in the Limitations section.
 - **Chroma with cosine similarity.** Cosine is the standard similarity metric for embedding vectors.
 
 ---
@@ -57,11 +57,11 @@ benchmark  →  run_eval  →  judge  →  kappa  →  metrics  →  notebook
 
 ### Data story
 
-A RAG needs a body of unstructured text to retrieve from, so picking the right corpus for this project mattered more than it might sound. Even though the evaluation methodology is the main deliverable here, the dataset only had to be substantial enough to make the methodology work, and the answers it contained had to be clear-cut enough that a hallucination would be obvious to a human reader.
+A RAG ideally needs a body of unstructured text to retrieve from, so picking the right corpus for this project mattered more than it might sound. Even though the evaluation methodology is the main deliverable here, the dataset only had to be substantial enough to make the methodology work, and the answers it contained had to be clear-cut enough that a hallucination would be obvious to a human reader.
 
 I started by looking for Singapore-based sources, because the brief asked for a problem a Singapore public-sector stakeholder might plausibly care about. Several candidate sources turned out to be impractical. Some websites such as HDB were challenging to scrap and goes against their ToU. I subsequently went to 'data.gov', but most of the data they provide are purely tabular and not suitable for a knowledge base.
 
-After some digging, I found some reports and data from SingStat. The Singapore Standard Occupational Classification (SSOC) 2024 turned out to be a strong fit. SingStat publishes two artifacts under permissive terms for non-commercial use. The first is an Excel file that lists every occupation code with its definition, example tasks, and "examples classified elsewhere" cross-references. The second is a Report PDF describing the structure of the classification and the changes from SSOC 2020 to 2024. Together they form a corpus of 1,475 chunks: 1,006 detailed five-digit occupations from Excel, 414 four-digit unit groups also from Excel, and 55 paragraph-level chunks from the report PDF.
+After some digging, I found some reports and data from SingStat. The Singapore Standard Occupational Classification (SSOC) 2024 turned out to be a strong fit. SingStat publishes two artifacts under permissive terms for non-commercial use. The first is an Excel file that lists every occupation code with its definition, example tasks, and "examples classified elsewhere" cross-references. The second is a Report PDF describing the structure of the classification and the changes from SSOC 2020 to 2024. Together they form a corpus of 1,475 chunks: 1,006 detailed five-digit occupations from Excel, 414 four-digit unit groups also from Excel, and 55 paragraph-level chunks from the report PDF. As such, this selected knowledge base and RAG system can be leveraged by employers or recruitement organisations like Ministry of Manpower or Workforce SG to find correct SSOC codes using natural language.
 
 The data is publicly published government information. There is no personal data in the corpus, only job titles, definitions, and classification metadata. The one honest skew worth flagging is that the corpus is Singapore-specific by design and does not represent any other country's occupational taxonomy. For this project that is a feature, not a limitation, because the benchmark categories include SSIC confusion (mistaking the industry classification for the occupational one), which only makes sense in the Singapore context.
 
@@ -94,7 +94,7 @@ The four-category structure from RAGTruth was adapted during the curation of the
 
 2. **SSIC confusion (`ssic-`).** The question asks about SSIC (Singapore Standard Industrial Classification, the industry code list) instead of SSOC (the occupational code list). The two are easy to mix up because both are 5-digit Singapore-specific code lists. The corpus contains only SSOC, so any question that requires an SSIC answer is unanswerable.
 
-3. **Obsolete version (`obs-`).** The question asks about a pre-2024 version of SSOC (2010, 2015, 2020), a cross-version comparison, or a pre-2024 code lookup. The corpus is SSOC 2024 only. However, it is notable that the pre-2024 code numbers used in these questions follow a plausible pattern but are not validated against historical SingStat publications. This is on purpose: we are testing temporal-grounding behaviour, not historical mapping accuracy. A response that confidently asserts a pre-2024 code is a hallucination regardless of whether the number happens to match a real legacy code.
+3. **Obsolete version (`obs-`).** The question asks about a pre-2024 version of SSOC (2010, 2015, 2020), a cross-version comparison, or a pre-2024 code lookup. The corpus is SSOC 2024 only. However, it is notable that the pre-2024 code numbers used in these questions follow a plausible pattern but are not validated against historical SingStat publications. In this case, we are testing temporal-grounding behaviour, not historical mapping accuracy. A response that confidently asserts a pre-2024 code is a hallucination regardless of whether the number happens to match a real legacy code.
 
 4. **Beyond-corpus attribute (`bca-`).** The question asks for a real attribute about a real code that is simply not in the corpus. Examples: salary, headcount, demographics, employer, code creation date. All unanswerable.
 
@@ -102,9 +102,9 @@ The four-category structure from RAGTruth was adapted during the curation of the
 
 ### RAG Response
 
-The RAG pipeline was executed against all 60 benchmark questions, once per prompt configuration. That produced 180 responses in total (60 questions × 3 configs). Retrieval is shared across configs: the same question always pulls the same top 4 chunks. The only variable between configs is the prompt the generator sees.
+The RAG pipeline was executed against all 60 benchmark questions, once per prompt configuration. That produced 180 responses in total (60 questions × 3 configs), with each question retrieving the same top 4 chunks. The only variable between configs is the prompt the generator sees.
 
-**The system attributes:**
+**The System Attributes:**
 
 - **Generator:** `gemini-2.5-flash` at temperature 0.0. Temperature 0 keeps the output as deterministic as possible, so the same input always produces the same response.
 - **Embeddings:** `gemini-embedding-001`, 768-dimensional, with asymmetric task types (DOCUMENT for indexed chunks, QUERY for incoming questions).
@@ -187,7 +187,6 @@ The full charts (bar plots, per-category heatmaps, failure-mode examples) live i
 
 - All hallucinations are generation-side, not retrieval-side.Recall@4 is 100% on answerable questions, and the `retrieval_provided_answer` flag shows the right chunks were available in nearly every hallucination cell (31 of 33 forced, 6 of 6 neutral, 3 of 3 strict). The model fabricated regardless of having the right chunks. This kind of attribution is exactly what the harness was built to produce: it tells the team the next lever is the prompt or the generator, not the retriever.
 
-
 ---
 
 ## How to Run
@@ -224,29 +223,34 @@ docker compose up
 #    per-category breakdowns, retrieval-cascade table, and failure-mode examples.
 #    No API key needed for this path.
 ```
+### Running commands while `docker compose up` is in the foreground
 
-**Why step 4 is needed.** Chroma stores its vector index as a binary HNSW segment whose layout is not portable across different Python builds, even on the same architecture. Shipping a pre-built `chroma_db` from one machine and trying to load it inside the Docker container on another machine reliably fails with `Error loading hnsw index`. Building the index inside the container, once, sidesteps this entirely.
-
-To run a live query against the RAG (requires `GEMINI_API_KEY` in `.env`):
-
-```bash
-docker compose run --rm rag python -m scripts.query "What is SSOC 25121?" --config strict
-```
-
-To reproduce the full evaluation (requires `GEMINI_API_KEY`; about $0.90 in API spend per full re-run):
+We can run additional commands on a second terminal window using `docker exec` to attach to the already-running container by name (`knowornobench`). Open another terminal window and run the following:
 
 ```bash
-docker compose run --rm rag python -m scripts.run_full_eval     # ~15 minutes
-docker compose run --rm rag python -m scripts.run_judge         # ~25 minutes
+# Live query against the RAG (requires GEMINI_API_KEY in .env)
+docker exec -it knowornobench python -m scripts.query "What is SSOC 25121?" --config strict
+
+# Try a question the corpus cannot answer to see strict refuse cleanly
+docker exec -it knowornobench python -m scripts.query "What is the SSOC code for a unicorn trainer?" --config strict
+
+# Same question under forced and neutral to see the three-way contrast
+docker exec -it knowornobench python -m scripts.query "What is the SSOC code for a unicorn trainer?" --config forced
+docker exec -it knowornobench python -m scripts.query "What is the SSOC code for a unicorn trainer?" --config neutral
+
+# Reproduce the full evaluation (~15 min for RAG, ~25 min for judge, ~$0.90 total)
+docker exec -it knowornobench python -m scripts.run_full_eval --rebuild
+docker exec -it knowornobench python -m scripts.run_judge     --rebuild
+
 ```
 
-To run the test suite inside the container (no API key needed; tests use injected stubs):
+**After re-running the evaluation:** the notebook reads the Excel result files into memory at cell-run time, so it keeps showing the old numbers until you re-execute the cells. After `run_full_eval --rebuild` and `run_judge --rebuild` finish, refresh the notebook in your browser and choose `Kernel → Restart and Run All` to render the fresh tables and charts.
+
+### Stopping the environment
 
 ```bash
-docker compose run --rm rag pytest -q
+docker compose down            # stop the container
 ```
-
-**Local Python fallback.** If you prefer to skip Docker, the project also runs from a Python 3.14 virtual environment: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`, then follow steps 2 onward, replacing `docker compose run --rm rag` with a direct `python -m` invocation. The SSOC source files and the Chroma index are committed in the repo, so no rebuild is required.
 
 ---
 
@@ -281,4 +285,76 @@ The current submission has a working evaluation harness, but several gaps in the
 
 **What I would monitor in production.** Three signals. (1) Hallucination rate on a fixed held-out set; if it drifts upward after a model upgrade, the model is regressing. (2) Recall@4 on the answerable subset; if retrieval recall drops, the index or the embedder has degraded. (3) Abstention rate distribution; a sudden drop means the model has become over-confident.
 
+**The one specific risk that would keep me up at night.** The abstention behaviour depends entirely on a single prompt instruction. The model could silently start ignoring that instruction after a Gemini model upgrade, and there is no decode-time enforcement to catch it. A model refresh could move the strict-config hallucination rate from 7.5% to 30% without any code change on our side. The mitigation is to re-run the full eval on every Gemini model version bump and to gate releases on hallucination rate, so a regression cannot ship silently.
+
 ---
+
+## Free-tier note
+
+The RAG itself runs end-to-end on free-tier resources. Embeddings come from `gemini-embedding-001` on the free tier (1,000 requests per day), generation runs on `gemini-2.5-flash` on the free tier, and Chroma is a local vector database with no hosting cost.
+
+The judge step in this submission used `gemini-2.5-pro`, which is paid. Total project spend on the judge was about $0.85, after the originally-intended free-tier `Llama 3.3 70B` via Groq and `DeepSeek V4 Flash` via OpenRouter exhausted mid-run. To reproduce the judge step on a strict free tier, swap the judge model in `src/config.py` (the `_call` injection seam in `src/eval/judge.py` makes this a one-line change) and accept lower kappa as a likely trade-off.
+
+What scales with budget: a larger benchmark, a cross-family judge for stronger kappa guarantees, and multiple samples per cell at non-zero temperatures to see variance.
+
+---
+
+## Repo layout
+
+```
+KnowOrNoBench/
+├── README.md                          # this file: the primary deliverable
+├── PROCESS.md                         # narrative of how the project was built
+├── Dockerfile                         # python:3.14-slim base, ships code + data + results
+├── docker-compose.yml                 # one rag service, port 8888 for Jupyter
+├── .dockerignore                      # excludes .git, .venv, .env, secrets, etc.
+├── requirements.txt                   # pinned Python dependencies
+├── .env.example                       # template for the GEMINI_API_KEY env file
+├── benchmark/
+│   └── questions.xlsx                 # 60 hand-curated questions (frozen)
+├── data/
+│   ├── raw/                           # SingStat SSOC 2024 Excel + Report PDF
+│   └── processed/                     # chunks JSONL produced by ingest.py
+├── src/
+│   ├── config.py                      # constants: model names, paths, top-k
+│   ├── ingest.py                      # parses Excel + PDF into structured chunks
+│   ├── embed.py                       # asymmetric Gemini embedding with pacer + retry
+│   ├── index.py                       # Chroma collection with explicit cosine metric
+│   ├── rag/
+│   │   ├── retrieve.py                # top-k cosine retrieval over the index
+│   │   ├── prompts.py                 # the three frozen prompt configs
+│   │   ├── generate.py                # Gemini Flash call at temperature 0
+│   │   └── answer.py                  # public answer(question, config) entry point
+│   └── eval/
+│       ├── benchmark_loader.py        # typed loader for benchmark/questions.xlsx
+│       ├── run_eval.py                # 60x3 RAG run, writes responses.xlsx
+│       ├── judge_prompt.py            # locked v0 judge rubric + label vocabulary
+│       ├── judge.py                   # per-cell judge + run_judge orchestrator
+│       ├── sample_for_kappa.py        # stratified 30-dev / 30-test sampler
+│       ├── kappa.py                   # Cohen's kappa + bootstrap CI
+│       └── metrics.py                 # pure-function rates and breakdowns
+├── scripts/
+│   ├── build_index.py                 # one-time vector-index build
+│   ├── query.py                       # CLI for a single live RAG query
+│   ├── run_full_eval.py               # CLI wrapper around run_eval
+│   ├── run_judge.py                   # CLI wrapper around run_judge
+│   ├── sample_for_kappa.py            # CLI wrapper around the sampler
+│   ├── compute_kappa.py               # CLI: compute kappa from hand vs judge labels
+│   └── spike.py                       # the original de-risking spike
+├── tests/                             # 128 tests across 14 files, zero API calls
+├── notebooks/
+│   ├── retrieval_quality.ipynb        # the pre-build retrieval-quality probe
+│   └── results_analysis.ipynb         # the final analytical artifact (tables + charts)
+└── results/
+    ├── responses.xlsx                 # 180 RAG responses, three configs side by side
+    ├── judged_neutral.xlsx            # judge labels for the neutral config
+    ├── judged_forced.xlsx             # judge labels for the forced config
+    ├── judged_strict.xlsx             # judge labels for the strict config
+    ├── hand_labels.xlsx               # the 60-cell kappa validation set
+    ├── kappa_dev.json                 # dev-split kappa + confusion matrix
+    └── kappa_test.json                # test-split kappa + confusion matrix
+```
+
+## License
+
+MIT.
