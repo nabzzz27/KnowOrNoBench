@@ -2,7 +2,7 @@
 
 A benchmark and evaluation harness that measures how reliably a Retrieval-Augmented Generation (RAG) system says "I don't know" instead of making things up when its knowledge base cannot answer the question.
 
-**Demo video:** `<paste-loom-or-youtube-url-here>`
+**Demo video:** https://youtu.be/-v403U6YoJE
 
 ---
 
