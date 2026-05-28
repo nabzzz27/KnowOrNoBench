@@ -12,7 +12,7 @@ Before writing the real pipeline, I wrote one throwaway script that ran tested a
 
 The spike paid for itself in two ways. It confirmed the architecture choices in advance (structure-aware chunking, asymmetric embeddings, Chroma with cosine similarity, a Flash generator) so I could build the real pipeline with confidence. It also surfaced a rate-limit characteristic I had not expected: the embedding API counts quota per text and per minute, not per request, which meant my first naive retry approach was useless. I replaced it with a proactive pacer that throttles requests up front, and that became the production behaviour.
 
-## Main Challenged Encountered
+## Main Challenges Encountered
 
 The first main challenge encountered was that the binding constraint on the free tier was not the per-minute rate the spike had measured. It was a separate daily cap that the spike never exposed, because the spike only embedded a small sample. The full corpus build hit the daily cap partway through and could not recover until the next day. The thing that saved the run was that I had built the index step to be idempotent and crash-resumable from the start. It queries existing chunk IDs first and only embeds the missing ones, so already-indexed chunks survived across sessions.
 
@@ -52,4 +52,4 @@ The judge also returns a `retrieval_provided_answer` boolean. This separates two
 
 ## What I would do differently
 
-Build the evaluation methodology before the RAG, not after. If I had drafted the eval first, the two-prompt methodology gap would have been caught at design time rather than at the first smoke test. Budget for paid judge cost upfront, rather than discovering it mid-run when a free tier exhausts. Other things I would have done differently includes things such as using a judge model from a different family than the generation model and leveraging and inter labeller to ensure that my judgement and labelling is coherrent.
+Build the evaluation methodology before the RAG, not after. If I had drafted the eval first, the two-prompt methodology gap would have been caught at design time rather than at the first smoke test. Budget for paid judge cost upfront, rather than discovering it mid-run when a free tier exhausts. Other things I would have done differently includes things such as using a judge model from a different family than the generation model and leveraging and inter labeller to ensure that my judgement and labelling is coherrent, mentioned in the README.md file.

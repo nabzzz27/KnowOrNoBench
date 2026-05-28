@@ -8,15 +8,15 @@ A benchmark and evaluation harness that measures how reliably a Retrieval-Augmen
 
 ## Problem statement
 
-LLM's are known to "hallucinate," meaning they sometimes invent facts that sound plausible but are not present in the knowledge base. In any setting where a user trusts the output, a fabricated answer is worse than no answer, because the wrong information then flows into downstream work. Even when RAG system is implemented, it is still possible for it to confabulate when asked questions their knowledge base is unable to answer.
+LLM's are known to "hallucinate," meaning they sometimes invent facts that sound plausible but are not present in the knowledge base. In any setting where a user trusts the output, a fabricated answer is worse than no answer or simply saying 'I don't know', because the wrong information then flows and can affect downstream work. Even when RAG system is implemented to reduce hallucination, it is still possible for it to confabulate when asked questions their knowledge base is unable to answer.
 
-This project measures the opposite behaviour: how often the system correctly recognises that it does not know, and abstains. The main stakeholders for this project is anyone deploying a RAG over a knowledge base who needs to evaluate how well their system can abstain from answers it does not know the knowlege of. This includes agency teams, product teams, researchers, and anyone running an LLM-backed lookup tool.
+This project aims to measure the opposite behaviour: how often the system correctly recognises that it does not know, and abstains. The main stakeholders for this project is anyone deploying a RAG over a knowledge base who needs to evaluate how well their system can abstain from answers it does not know the knowlege of. This includes agency teams, product teams, researchers, and anyone running an LLM-backed lookup tool.
 
 ## Overall Architecture
 
-The project has two parts, the RAG system and the evaluation methodology. The RAG itself is deliberately kept simple, because the evaluation methodology is the deliverable and main focus. The eval's job is to communicate how reliably the system abstains based on what was actually retrieved from the knowledge base. For the project, the knowledge base consists of the 2024 SSOC codes published by SingStat, covering 1,420 occupation entries plus 55 paragraphs from the accompanying SSOC 2024 Report PDF that explains the classification structure. More information of it can be found in the Data Story section.
+The project has two parts, the RAG system itself and the evaluation methodology. The RAG itself is deliberately kept simple, because the evaluation methodology is the deliverable and main focus. The eval's job is to communicate how reliably the system abstains based on what was actually retrieved from the knowledge base. For the project, the knowledge base consists of the 2024 SSOC codes published by SingStat, covering 1,420 occupation entries plus 55 paragraphs from the accompanying SSOC 2024 Report PDF that explains the classification structure. More information of it can be found in the Data Story section.
 
-### Part 1. The RAG (the system under test)
+### Part 1. The RAG System
 
 A standard RAG pipeline, with one responsibility per module in `src/`.
 
@@ -39,29 +39,29 @@ benchmark  →  run_eval  →  judge  →  kappa  →  metrics  →  notebook
 ```
 
 - **Benchmark** (`benchmark/questions.xlsx`). 60 hand-curated questions. 20 are answerable from the corpus. 40 are unanswerable, split into 4 categories that each test a different way a RAG might hallucinate. More about what the categories are and how they come about are in the below sections.
-- **Run eval** (`src/eval/run_eval.py`). Runs all 60 questions against the RAG, once per prompt configuration (3 configs total). More about the configurations and in the below sections. Produces 180 responses in one Excel file.
+- **Run eval** (`src/eval/run_eval.py`). Runs all 60 questions against the RAG, once per prompt configuration (3 configs total). More about the configurations are in the below sections. Produces 180 responses in one Excel file.
 - **Judge** (`src/eval/judge.py`). An LLM judge (`gemini-2.5-pro`) classifies each response into one of 5 labels (correct answer, wrong answer, over-refusal, correct abstain, hallucination).
 - **Kappa** (`src/eval/kappa.py`). Compares the judge's labels against a small set of hand-labelled responses, using Cohen's kappa. Cohen's kappa is a standard agreement statistic typically between 0 and 1, where higher is better and 1.0 means perfect agreement. This is how we prove the LLM judge is trustworthy enough and aligns to what humans perceive as the answer being correct or not.
 - **Metrics** (`src/eval/metrics.py`). Pure Python functions that compute the headline rates (hallucination rate, abstention rate, etc.) and per-category breakdowns.
 - **Notebook** (`notebooks/results_analysis.ipynb`). The rendered analytical artifact. Tables, bar charts, heatmaps.
 
-### Why these model choices
+### Architectural and Model Choices
 
 - **`gemini-2.5-flash` for the generator.** Fast and accurate enough for SSOC lookup.
-- **`gemini-2.5-pro` for the judge.** A more capable model than the generator. Originally, I planned to use `llama-3.3-70b-versatile` or `DeepSeek V4 Flash` via Groq and OpenRouter for the judge so the judge was from a different model family (to avoid bias). However, mid-project, their free tier ran out and had to switch. The judge-stronger-than-student gap mitigates the same-family risk, but this is disclosed in the Limitations section.
+- **`gemini-2.5-pro` for the judge.** A more capable model than the generator. Originally, I planned to use `llama-3.3-70b-versatile` or `DeepSeek V4 Flash` via Groq and OpenRouter for the judge so the judge was from a different model family (to avoid bias). However, mid-project, their free tier ran out and had to switch.
 - **Chroma with cosine similarity.** Cosine is the standard similarity metric for embedding vectors.
 
 ---
 
 ## Methodology and evaluation
 
-### Data story
+### Data Story
 
 A RAG ideally needs a body of unstructured text to retrieve from, so picking the right corpus for this project mattered more than it might sound. Even though the evaluation methodology is the main deliverable here, the dataset only had to be substantial enough to make the methodology work, and the answers it contained had to be clear-cut enough that a hallucination would be obvious to a human reader.
 
-I started by looking for Singapore-based sources, because the brief asked for a problem a Singapore public-sector stakeholder might plausibly care about. Several candidate sources turned out to be impractical. Some websites such as HDB were challenging to scrap and goes against their ToU. I subsequently went to 'data.gov', but most of the data they provide are purely tabular and not suitable for a knowledge base.
+I started by looking for Singapore-based sources, because the brief asked for a problem a Singapore public-sector stakeholder might plausibly care about. Several candidate sources turned out to be impractical. Some websites such as HDB were challenging to scrape and goes against their ToU. I subsequently went to 'data.gov.sg', but most of the data they provide are purely tabular and not suitable for a RAG knowledge base.
 
-After some digging, I found some reports and data from SingStat. The Singapore Standard Occupational Classification (SSOC) 2024 turned out to be a strong fit. SingStat publishes two artifacts under permissive terms for non-commercial use. The first is an Excel file that lists every occupation code with its definition, example tasks, and "examples classified elsewhere" cross-references. The second is a Report PDF describing the structure of the classification and the changes from SSOC 2020 to 2024. Together they form a corpus of 1,475 chunks: 1,006 detailed five-digit occupations from Excel, 414 four-digit unit groups also from Excel, and 55 paragraph-level chunks from the report PDF. As such, this selected knowledge base and RAG system can be leveraged by employers or recruitement organisations like Ministry of Manpower or Workforce SG to find correct SSOC codes using natural language.
+After some digging, I found some reports and data from SingStat. The Singapore Standard Occupational Classification (SSOC) 2024 turned out to be a strong fit. SingStat publishes two artifacts under permissive terms for non-commercial use. The first is an Excel file that lists every occupation code with its definition, example tasks, and "examples classified elsewhere" cross-references. The second is a Report PDF describing the structure of the classification and the changes from SSOC 2020 to 2024. Together they form a corpus of 1,475 chunks: 1,006 detailed five-digit occupations from Excel, 414 four-digit unit groups also from Excel, and 55 paragraph-level chunks from the report PDF. As such, this selected knowledge base and RAG system can be leveraged by employers or wokforce related agencies like Ministry of Manpower or Workforce SG to find correct SSOC codes using natural language.
 
 The data is publicly published government information. There is no personal data in the corpus, only job titles, definitions, and classification metadata. The one honest skew worth flagging is that the corpus is Singapore-specific by design and does not represent any other country's occupational taxonomy. For this project that is a feature, not a limitation, because the benchmark categories include SSIC confusion (mistaking the industry classification for the occupational one), which only makes sense in the Singapore context.
 
@@ -141,11 +141,11 @@ Cohen's kappa is a number between 0 and 1 that measures how well two labellers a
    - `CORRECT_ABSTAIN`. The model correctly recognised it cannot answer and declined to make a factual claim.
    - `HALLUCINATION`. The model committed to a specific factual claim (a code, an attribute, a year, a mapping) that the corpus does not support. Hedged claims like "this might be SSOC 25121" count.
 
-   The judge also returns a `retrieval_provided_answer` boolean for each response. This separates "retrieval failed" hallucinations (the right chunk was never surfaced) from "model fabricated despite good retrieval" (the right chunk was in the context but the model invented anyway). This split is what the per-category and retrieval-cascade tables in the Results section use.
+   The judge also returns a `retrieval_provided_answer` boolean for each response. This separates "retrieval failed" hallucinations (the right chunk was never surfaced) from "model fabricated despite good retrieval" (the right chunk was in the context but the model invented anyway).
 
 2. Sample 60 of the 180 responses into a 30-question dev set and a 30-question test set, stratified across categories with a fixed random seed (42).
 3. Hand-label all 60 questions.
-4. Iterate the judge prompt on the dev set until kappa is high.
+4. Iterate the judge prompt on the dev set if needed until kappa is high.
 5. Measure final kappa on the held-out test set. The test set is reported only once. This prevents tuning to the test set.
 
 **Result.** Dev kappa = 1.000 and test kappa = 1.000. No prompt iteration was needed because the rubric agreed with the hand labels on every sampled cell on the first try. The prompt is now locked in `src/eval/judge_prompt.py` at version `v0`. Any future edit invalidates the kappa and would require re-measurement.
@@ -157,6 +157,8 @@ Cohen's kappa is a number between 0 and 1 that measures how well two labellers a
 The full charts (bar plots, per-category heatmaps, failure-mode examples) live in `notebooks/results_analysis.ipynb`. The key numbers are reproduced below.
 
 ### Headline 3-way comparison
+
+Both tables use the same formula in `src/eval/metrics.py`: `(count of one judge label) / (count of rows in the relevant subset)`, per config. For the headline 3-way comparison, the denominator is 40 unanswerable rows for hallucination_rate and correct_abstention_rate, and 20 answerable rows for the three answerable-side rates. For the per-category breakdown, the denominator is filtered to one category (10 questions per unanswerable category per config). So strict's 0.075 headline hallucination rate is 3 out of 40, and its 0.20 SSIC-confusion rate is 2 out of 10.
 
 20 answerable plus 40 unanswerable per config (n=60 per column).
 
@@ -179,7 +181,7 @@ The full charts (bar plots, per-category heatmaps, failure-mode examples) live i
 
 ### Overall Findings
 
-- Strict hallucinates on 7.5% of unanswerable questions while neutral hallucinates on 15%. The gap is the size of the effect prompt is actually buying. At the same time, all three configs answer 100% of the answerable questions correctly with 0% over-refusal anywhere. That rules out the "score perfectly on hallucination by refusing everything" trap, which is the failure mode a hallucination-only metric would miss.
+- Strict hallucinates on 7.5% of unanswerable questions while neutral hallucinates on 15%. The gap is the size of the effect the prompt is actually buying. At the same time, all three configs answer 100% of the answerable questions correctly with 0% over-refusal anywhere. That rules out the "score perfectly on hallucination by refusing everything" trap, which is the failure mode a hallucination-only metric would miss.
 
 - Forced hallucinates on 82.5% of unanswerable questions, neutral on 15%, and strict on 7.5%. That 11x range, driven only by prompt wording, tells us three things at once. First, the judge is detecting hallucinations correctly: if forced had scored low, the judge would be mislabelling and every other number in the table would be suspect. Second, the prompt is genuinely the active lever, because the model can be moved across that range just by changing the instruction text. Third, there is no silent server-side guardrail filtering hallucinated outputs on the provider's end, because if there were, forced would not have been able to push the rate this high. The headline finding ("strict cuts hallucination roughly in half") is therefore a real prompt effect, not noise or an artefact of upstream model behaviour. Prompt engineering is the right level of intervention to invest in.
 
@@ -220,7 +222,7 @@ docker compose up
 
 # 6. Open http://localhost:8888 in your browser.
 #    Open notebooks/results_analysis.ipynb to see the headline 3-way comparison,
-#    per-category breakdowns, retrieval-cascade table, and failure-mode examples.
+#    per-category breakdowns, and failure-mode examples.
 #    No API key needed for this path.
 ```
 ### Running commands while `docker compose up` is in the foreground
@@ -269,10 +271,9 @@ docker compose down            # stop the container
 
 ## Limitations
 
-- **Same-family judge.** Originally the intended judge model was `llama-3.3-70b-versatile` via Groq and `DeepSeek V4 Flash (free)` via OpenRouter, chosen so the judge came from a different model family than the generator (`gemini-2.5-flash`). This guards against self-preference bias, where a judge might rate its own family's outputs more favourably. However, mid-project, the free tier for both models got rate limited and subsequently switched to `gemini-2.5-pro` as I still had some credit fo it left. *What I would do differently.* Re-run kappa with a non-Gemini judge (paid OpenRouter, Anthropic, or OpenAI) to confirm the kappa we measured here.
+- **Same-family judge.** Originally the intended judge model was `llama-3.3-70b-versatile` via Groq and `DeepSeek V4 Flash (free)` via OpenRouter, chosen so the judge came from a different model family than the generator (`gemini-2.5-flash`). This guards against self-preference bias, where a judge might rate its own family's outputs more favourably. However, mid-project, the free tier for both models got rate limited and subsequently switched to `gemini-2.5-pro` as I still had some credit for it left.
 - **N=30 per dev/test split.** This gives a wide confidence interval on kappa. The point estimate of 1.000 should be read as a range. A production-scale validation would use 90 or more labels per split and allows kappa to be more reliable, and concluding that the LLM used for judging can be trusted.
 - **Per-category n=10.** Confidence intervals on per-category rates are wide. We do not run statistical significance tests across configs at this sample size.
-- **`ans-008` has ambiguous ground truth.** The question "What is the code for someone who operates trains?" has two defensible answers in the corpus (31596 Train operations officer; 83110 Train operator). This was discovered this after running the RAG. We left the question and ground truth unchanged, on principle: do not retrofit the benchmark after seeing model output.
 
 **What I would do without time or budget limits.**
 
@@ -282,11 +283,18 @@ The current submission has a working evaluation harness, but several gaps in the
 
 - **A larger benchmark (N=300 instead of N=60).** The current 60-question benchmark might not be enough to truly evaluate the system. That is why the strict-vs-neutral gap (7.5% vs 15%) is described as a directional finding rather than statistically significant. Scaling the benchmark to 300 questions (roughly 60 per category instead of 10 to 20) would tighten the confidence interval, which is the threshold where the strict-vs-neutral comparison becomes a defensible significance claim. The per-category breakdown would also become much more reliable, especially for SSIC confusion where the residual 20% hallucination rate currently sits on only 10 questions.
 
+- **A `PARTIAL_ANSWER` label and inter-rater agreement on the questions themselves.** The current 5-label rubric collapses every non-committal response into either `CORRECT_ABSTAIN` or `HALLUCINATION`, but in practice we sometimes encounter middle-ground responses where the model acknowledges related context without committing to a specific claim. Adding a sixth label, `PARTIAL_ANSWER`, would let the eval distinguish "the model is hedging, which is closer to honest abstention" from "the model is committing to a false specific claim, which is a clean hallucination," and give a more honest signal on borderline cells. The same gray-zone exists at curation time. If two independent labellers both think a question I designed as unanswerable can actually be partially answered from the corpus, that is a strong signal the question is miscategorized and would corrupt the per-category breakdown if used as-is. With time, I would run inter-rater agreement on the questions themselves, not just on the judge labels, so questions where labellers disagree on the expected behaviour get rewritten or dropped before they enter the frozen benchmark.
+
+- **A user-acceptance-test pass on the benchmark before it is frozen.** The current benchmark is the work of a single curator (me) drafting questions against the corpus and verifying each one against the chunks. A more defensible flow is to run a UAT where two or three independent reviewers attempt to answer each question using only the corpus, and report whether they could answer it, what code or claim they would have given, and whether the question felt clear. Questions that produce inconsistent reviewer behaviour get adapted or replaced. The output is a curated set with documented agreement on which questions are answerable, which are not, and why. That turns the benchmark itself into a measured artifact rather than a hand-drafted one, which is the same scaling story as LLM-as-judge: spend the human effort once on validation, then trust the artifact for repeated measurement.
+
 - **Blind double-labelling for inter-rater κ on the hand labels themselves.** Right now I am the only person who hand-labelled the 60-cell κ validation set. The judge-vs-me κ is what is reported, but there is no measurement of the rubric's reliability when applied by a second independent human. With time, I would have a second labeller go through the same 60 cells without seeing my labels and compute the human-vs-human κ. A high inter-rater κ would confirm that the rubric is objective and that the judge-vs-me agreement is meaningful. A low one would mean the rubric itself is ambiguous and needs tightening before any judge can be validated against it. This is a real methodological hole in the current submission.
 
 - **Multiple samples per cell at non-zero temperature.** The eval runs each cell once at temperature 0.0, which makes the run deterministic but produces a single point estimate per cell with no variance bars. Production deployments often use a non-zero temperature for output diversity, and a deterministic temperature-0 measurement can overstate reliability. With budget, I would re-run each cell five times at temperature 0.7 and report not just the hallucination rate but the standard deviation across samples. That would give a deploying team a realistic sense of how much variation in behaviour to expect when their actual system is not pinned to temperature 0.
 
 - **Ablating beyond just the prompt.** The current eval only varies one component of the RAG, the prompt, while holding everything else fixed (same retriever, same embedding model, same generator, same top-k, same chunking). The conclusion that "prompt engineering is the right lever" is therefore only defensible for this corpus and this model combination. With more time, I would run the same benchmark against ablated versions of the rest of the pipeline: a swapped embedding model (such as `text-embedding-3-large` or BGE) to test retrieval robustness, a swapped generator (such as GPT-4o or Claude) to see whether the strict-abstention behaviour transfers across model families, different top-k values (1, 4, 8) to measure how much context the model actually uses, and a cross-encoder reranker after dense retrieval to test whether better ranking moves the residual SSIC confusion rate.
+
+- **Swap Chroma for an enterprise-grade vector store in production.** Chroma is a great choice for this submission: it is local, persistent, free, and supports the explicit-cosine setup the project needs. It is not the right choice for production at scale. For a deployed RAG, I would move the index to a managed vector store such as Azure or GCP, depending on the deployment environment. The advantages include things like horizontal scaling beyond a single machine, high availability and managed backups, role-based access control and per-tenant isolation, hybrid retrieval (vector plus keyword) for harder query types and native monitoring. 
+
 
 ---
 
@@ -306,67 +314,11 @@ The current submission has a working evaluation harness, but several gaps in the
 
 The RAG itself runs end-to-end on free-tier resources. Embeddings come from `gemini-embedding-001` on the free tier (1,000 requests per day), generation runs on `gemini-2.5-flash` on the free tier, and Chroma is a local vector database with no hosting cost.
 
-The judge step in this submission used `gemini-2.5-pro`, which is paid. Total project spend on the judge was about $0.85, after the originally-intended free-tier `Llama 3.3 70B` via Groq and `DeepSeek V4 Flash` via OpenRouter exhausted mid-run. To reproduce the judge step on a strict free tier, swap the judge model in `src/config.py` (the `_call` injection seam in `src/eval/judge.py` makes this a one-line change) and accept lower kappa as a likely trade-off.
+The judge step in this submission used `gemini-2.5-pro`, which is paid. Total project spend on the judge was about $0.85, after the originally-intended free-tier `Llama 3.3 70B` via Groq and `DeepSeek V4 Flash` via OpenRouter exhausted mid-run. 
 
 What scales with budget: a larger benchmark, a cross-family judge for stronger kappa guarantees, and multiple samples per cell at non-zero temperatures to see variance.
 
 ---
-
-## Repo layout
-
-```
-KnowOrNoBench/
-├── README.md                          # this file: the primary deliverable
-├── PROCESS.md                         # narrative of how the project was built
-├── Dockerfile                         # python:3.14-slim base, ships code + data + results
-├── docker-compose.yml                 # one rag service, port 8888 for Jupyter
-├── .dockerignore                      # excludes .git, .venv, .env, secrets, etc.
-├── requirements.txt                   # pinned Python dependencies
-├── .env.example                       # template for the GEMINI_API_KEY env file
-├── benchmark/
-│   └── questions.xlsx                 # 60 hand-curated questions (frozen)
-├── data/
-│   ├── raw/                           # SingStat SSOC 2024 Excel + Report PDF
-│   └── processed/                     # chunks JSONL produced by ingest.py
-├── src/
-│   ├── config.py                      # constants: model names, paths, top-k
-│   ├── ingest.py                      # parses Excel + PDF into structured chunks
-│   ├── embed.py                       # asymmetric Gemini embedding with pacer + retry
-│   ├── index.py                       # Chroma collection with explicit cosine metric
-│   ├── rag/
-│   │   ├── retrieve.py                # top-k cosine retrieval over the index
-│   │   ├── prompts.py                 # the three frozen prompt configs
-│   │   ├── generate.py                # Gemini Flash call at temperature 0
-│   │   └── answer.py                  # public answer(question, config) entry point
-│   └── eval/
-│       ├── benchmark_loader.py        # typed loader for benchmark/questions.xlsx
-│       ├── run_eval.py                # 60x3 RAG run, writes responses.xlsx
-│       ├── judge_prompt.py            # locked v0 judge rubric + label vocabulary
-│       ├── judge.py                   # per-cell judge + run_judge orchestrator
-│       ├── sample_for_kappa.py        # stratified 30-dev / 30-test sampler
-│       ├── kappa.py                   # Cohen's kappa + bootstrap CI
-│       └── metrics.py                 # pure-function rates and breakdowns
-├── scripts/
-│   ├── build_index.py                 # one-time vector-index build
-│   ├── query.py                       # CLI for a single live RAG query
-│   ├── run_full_eval.py               # CLI wrapper around run_eval
-│   ├── run_judge.py                   # CLI wrapper around run_judge
-│   ├── sample_for_kappa.py            # CLI wrapper around the sampler
-│   ├── compute_kappa.py               # CLI: compute kappa from hand vs judge labels
-│   └── spike.py                       # the original de-risking spike
-├── tests/                             # 128 tests across 14 files, zero API calls
-├── notebooks/
-│   ├── retrieval_quality.ipynb        # the pre-build retrieval-quality probe
-│   └── results_analysis.ipynb         # the final analytical artifact (tables + charts)
-└── results/
-    ├── responses.xlsx                 # 180 RAG responses, three configs side by side
-    ├── judged_neutral.xlsx            # judge labels for the neutral config
-    ├── judged_forced.xlsx             # judge labels for the forced config
-    ├── judged_strict.xlsx             # judge labels for the strict config
-    ├── hand_labels.xlsx               # the 60-cell kappa validation set
-    ├── kappa_dev.json                 # dev-split kappa + confusion matrix
-    └── kappa_test.json                # test-split kappa + confusion matrix
-```
 
 ## License
 
