@@ -8,7 +8,7 @@ A benchmark and evaluation harness that measures how reliably a Retrieval-Augmen
 
 ## Problem statement
 
-LLM's are known to "hallucinate," meaning they sometimes invent facts that sound plausible but are not present in the knowledge base. In any setting where a user trusts the output, a fabricated answer is worse than no answer or simply saying 'I don't know', because the wrong information then flows and can affect downstream work. Even when RAG system is implemented to reduce hallucination, it is still possible for it to confabulate when asked questions their knowledge base is unable to answer.
+LLM's are known to "hallucinate," meaning they sometimes invent facts that sound plausible but are not true. In any setting where a user trusts the output, a fabricated answer is worse than no answer or simply saying 'I don't know', because the wrong information then flows and can affect downstream work. Even when RAG system is implemented to reduce hallucination, it is still possible for it to confabulate when asked questions their knowledge base is unable to answer.
 
 This project aims to measure the opposite behaviour: how often the system correctly recognises that it does not know, and abstains. The main stakeholders for this project is anyone deploying a RAG over a knowledge base who needs to evaluate how well their system can abstain from answers it does not know the knowlege of. This includes agency teams, product teams, researchers, and anyone running an LLM-backed lookup tool.
 
